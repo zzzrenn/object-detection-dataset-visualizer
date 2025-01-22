@@ -6,7 +6,7 @@ import os
 from collections import defaultdict
 
 class ObjectDetectionViewer(ctk.CTk):
-    def __init__(self, image_folder):
+    def __init__(self):
         super().__init__()
 
         self.title("Object Detection Dataset Viewer")
@@ -24,7 +24,11 @@ class ObjectDetectionViewer(ctk.CTk):
         self.class_checkboxes = {}
         self.visible_classes = set()
         self.selected_box = None
-        self.image_folder = image_folder
+
+        # dataset info
+        self.dataset_format_options = ["COCO"]
+        self.image_path = None
+        self.annotation_path = None
         
         self.setup_ui()
         
@@ -47,7 +51,7 @@ class ObjectDetectionViewer(ctk.CTk):
         
         # Create right sidebar for class checkboxes
         self.sidebar = ctk.CTkScrollableFrame(self, width=250)
-        self.sidebar.grid(row=1, column=2, sticky="nsew", padx=10, pady=10)
+        self.sidebar.grid(row=1, column=3, sticky="nsew", padx=10, pady=10)
         
         # Bind events
         self.bind('<Left>', self.prev_image)
@@ -74,20 +78,45 @@ class ObjectDetectionViewer(ctk.CTk):
         self.load_current_image()
 
     def create_menu(self):
-        self.menu_frame = ctk.CTkFrame(self)
-        self.menu_frame.grid(row=0, column=0, columnspan=3, sticky="ew", padx=10, pady=5)
+        self.load_frame = ctk.CTkFrame(self)
+        self.load_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
         
+        # Input format dropdown
+        dataset_format_dd = ctk.CTkOptionMenu(
+            self.load_frame,
+            values=self.dataset_format_options
+        )
+        dataset_format_dd.pack(side="left", padx=5)
+
+        # Select directory
+        image_folder_btn = ctk.CTkButton(
+            self.load_frame,
+            text="select path to image foldedr",
+            command=self.select_image_directory
+        )
+        image_folder_btn.pack(side="left", padx=5)
+
+        annotation_folder_btn = ctk.CTkButton(
+            self.load_frame,
+            text="select path to annotation.json",
+            command=self.select_annotation
+        )
+        annotation_folder_btn.pack(side="left", padx=5)
+
         # Load dataset button
         load_btn = ctk.CTkButton(
-            self.menu_frame, 
+            self.load_frame, 
             text="Load COCO Dataset", 
             command=self.load_dataset
         )
         load_btn.pack(side="left", padx=5)
         
+        self.save_frame = ctk.CTkFrame(self)
+        self.save_frame.grid(row=0, column=2, columnspan=2, sticky="ew", padx=10, pady=5)
+
         # Save current image button
         save_btn = ctk.CTkButton(
-            self.menu_frame, 
+            self.save_frame, 
             text="Save Current Image", 
             command=self.save_current_image
         )
@@ -95,24 +124,35 @@ class ObjectDetectionViewer(ctk.CTk):
         
         # Export button
         export_btn = ctk.CTkButton(
-            self.menu_frame, 
+            self.save_frame, 
             text="Export COCO Annotations", 
             command=self.export_annotations
         )
         export_btn.pack(side="left", padx=5)
-        
-    def load_dataset(self):
-        # Open file dialog to select COCO annotation file
-        filename = tk.filedialog.askopenfilename(
+
+    def select_image_directory(self):
+        self.image_path = tk.filedialog.askdirectory(
+            title="Select image folder"
+        )
+        print(self.image_path)
+    
+    def select_annotation(self):
+        self.annotation_path = tk.filedialog.askopenfilename(
             title="Select COCO annotation file",
             filetypes=[("JSON files", "*.json")]
         )
         
-        if not filename:
-            return
+    def load_dataset(self):
+        # Open file dialog to select COCO annotation file
+        # filename = tk.filedialog.askopenfilename(
+        #     title="Select COCO annotation file",
+        #     filetypes=[("JSON files", "*.json")]
+        # )
+        
+        assert self.image_path and self.annotation_path, "Missing image path and/or annotation path!"
             
         # Load COCO format annotations
-        with open(filename, 'r') as f:
+        with open(self.annotation_path, 'r') as f:
             coco_data = json.load(f)
             
         # Process categories
@@ -198,7 +238,7 @@ class ObjectDetectionViewer(ctk.CTk):
         image_info = self.images[current_image_id]
         
         # Load image file
-        image_path = os.path.join(self.image_folder, image_info['file_name'])
+        image_path = os.path.join(self.image_path, image_info['file_name'])
         try:
             self.current_image = Image.open(image_path)
         except:
@@ -388,5 +428,5 @@ class ObjectDetectionViewer(ctk.CTk):
             json.dump(export_data, f, indent=2)
 
 if __name__ == "__main__":
-    app = ObjectDetectionViewer("../datasets/coco/images/val2017")
+    app = ObjectDetectionViewer()
     app.mainloop()

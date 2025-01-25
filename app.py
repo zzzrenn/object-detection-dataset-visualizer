@@ -18,7 +18,8 @@ class ObjectDetectionViewer(ctk.CTk):
         self.annotations = []
         self.categories = {}  # {id: {name: str, count: int}}
         self.image_annotations = defaultdict(list)  # {image_id: [annotations]}
-        self.current_image = None
+        self._current_image = None # original image
+        self.current_image = None # resized image
         self.photo_image = None
         self.resize_factor = 1.0
         self.zoom_factor = 1.0
@@ -299,11 +300,14 @@ class ObjectDetectionViewer(ctk.CTk):
         # Create new checkboxes
         for cat_id, cat_info in self.categories.items():
             count = class_counts[cat_id]
+            if count == 0:
+                continue
             var = tk.BooleanVar(value=count > 0)
             
             checkbox = ctk.CTkCheckBox(
                 self.sidebar,
                 text=f"{cat_info['name']} ({count})",
+                text_color=self.get_color(cat_id),
                 variable=var,
                 command=lambda cid=cat_id: self.toggle_class_visibility(cid),
                 state="normal" if count > 0 else "disabled"
@@ -409,7 +413,28 @@ class ObjectDetectionViewer(ctk.CTk):
             
     def get_color(self, category_id):
         # Generate consistent color for each category
-        colors = ['#FF0000', '#00FF00', '#0000FF', '#FFFF00', '#FF00FF', '#00FFFF']
+        colors = [
+            "#FF3838",
+            "#FF9D97",
+            "#FF701F",
+            "#FFB21D",
+            "#CFD231",
+            "#48F90A",
+            "#92CC17",
+            "#3DDB86",
+            "#1A9334",
+            "#00D4BB",
+            "#2C99A8",
+            "#00C2FF",
+            "#344593",
+            "#6473FF",
+            "#0018EC",
+            "#8438FF",
+            "#520085",
+            "#CB38FF",
+            "#FF95C8",
+            "#FF37C7"
+            ]
         return colors[category_id % len(colors)]
         
     def show_box_metadata(self, box_tag):

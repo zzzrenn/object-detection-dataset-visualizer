@@ -24,6 +24,7 @@ class ObjectDetectionViewer(ctk.CTk):
         self.class_checkboxes = {}
         self.visible_classes = set()
         self.selected_box = None
+        self.loaded_dataset = False
 
         # dataset info
         self.dataset_format_options = ["COCO"]
@@ -70,6 +71,8 @@ class ObjectDetectionViewer(ctk.CTk):
                 break
 
     def on_mousewheel(self, event):
+        if not self.loaded_dataset:
+            return
         # Zoom in/out with mouse wheel
         if event.delta > 0:
             self.zoom_factor *= 1.1
@@ -130,33 +133,34 @@ class ObjectDetectionViewer(ctk.CTk):
         self.annotation_path_entry.grid(row=0, column=7, padx=5, pady=5, sticky="ew")
 
         # Load dataset button
-        load_btn = ctk.CTkButton(
+        self.load_btn = ctk.CTkButton(
             self.load_frame, 
             text="Load Dataset", 
             width=100,
-            command=self.load_dataset
+            command=self.load_dataset,
+            state="disabled"
         )
-        load_btn.grid(row=0, column=8, padx=5, pady=5)
+        self.load_btn.grid(row=0, column=8, padx=5, pady=5)
 
         # Save and export frame
         self.save_frame = ctk.CTkFrame(self)
         self.save_frame.grid(row=1, column=0, columnspan=4, sticky="ew", padx=5, pady=5)
 
         # Save current image button
-        save_btn = ctk.CTkButton(
+        self.save_btn = ctk.CTkButton(
             self.save_frame, 
             text="Save Current Image", 
             command=self.save_current_image
         )
-        save_btn.pack(side="left", padx=5)
+        self.save_btn.pack(side="left", padx=5)
         
         # Export button
-        export_btn = ctk.CTkButton(
+        self.export_btn = ctk.CTkButton(
             self.save_frame, 
             text="Export COCO Annotations", 
             command=self.export_annotations
         )
-        export_btn.pack(side="left", padx=5)
+        self.export_btn.pack(side="left", padx=5)
 
         # Configure column weights for responsive layout
         self.load_frame.grid_columnconfigure(4, weight=1)
@@ -172,6 +176,9 @@ class ObjectDetectionViewer(ctk.CTk):
             self.image_path_entry.delete(0, tk.END)
             self.image_path_entry.insert(0, self.image_path)
             self.image_path_entry.configure(state="readonly")
+
+        if self.image_path and self.annotation_path:
+            self.load_btn.configure(state="normal")
         
     def select_annotation(self):
         self.annotation_path = tk.filedialog.askopenfilename(
@@ -185,46 +192,84 @@ class ObjectDetectionViewer(ctk.CTk):
             self.annotation_path_entry.insert(0, self.annotation_path)
             self.annotation_path_entry.configure(state="readonly")
         
+        if self.image_path and self.annotation_path:
+            self.load_btn.configure(state="normal")
+    
+    def set_dataset_button_state(self, state):
+        # Enable and disable buttons related to dataset
+        self.load_btn.configure(state=state)
+        self.save_btn.configure(state=state)
+        self.export_btn.configure(state=state)
+
     def load_dataset(self):     
-        assert self.image_path and self.annotation_path, "Missing image path and/or annotation path!"
-            
-        # Load COCO format annotations
-        with open(self.annotation_path, 'r') as f:
-            coco_data = json.load(f)
-            
-        # Process categories
-        self.categories = {
-            cat['id']: {'name': cat['name'], 'count': 0} 
-            for cat in coco_data['categories']
-        }
-        
-        # Process images
-        self.images = {
-            img['id']: {
-                'file_name': img['file_name'],
-                'width': img['width'],
-                'height': img['height']
+        try:
+            assert self.image_path, "Missing image folder path!"
+            assert self.annotation_path, "Missing annotation file path!"
+                
+            # Load COCO format annotations
+            with open(self.annotation_path, 'r') as f:
+                coco_data = json.load(f)
+                
+            # Process categories
+            self.categories = {
+                cat['id']: {'name': cat['name'], 'count': 0} 
+                for cat in coco_data['categories']
             }
-            for img in coco_data['images']
-        }
-        
-        # Process annotations
-        self.image_annotations.clear()
-        for ann in coco_data['annotations']:
-            self.image_annotations[ann['image_id']].append({
-                'category_id': ann['category_id'],
-                'bbox': ann['bbox'],  # [x, y, width, height]
-                'score': ann.get('score', 1.0),
-                'id': ann['id']
-            })
             
-        # Set image list for navigation
-        self.image_list = list(self.images.keys())
-        self.current_image_index = 0
-        
-        # Update UI
-        self.update_class_checkboxes()
-        self.load_current_image()
+            # Process images
+            self.images = {
+                img['id']: {
+                    'file_name': img['file_name'],
+                    'width': img['width'],
+                    'height': img['height']
+                }
+                for img in coco_data['images']
+            }
+            
+            # Process annotations
+            self.image_annotations.clear()
+            for ann in coco_data['annotations']:
+                self.image_annotations[ann['image_id']].append({
+                    'category_id': ann['category_id'],
+                    'bbox': ann['bbox'],  # [x, y, width, height]
+                    'score': ann.get('score', 1.0),
+                    'id': ann['id']
+                })
+                
+            # Loaded dataset
+            self.loaded_dataset = True
+
+            # Set image list for navigation
+            self.image_list = list(self.images.keys())
+            self.current_image_index = 0
+            
+            # Update UI
+            self.load_current_image()
+            self.update_class_checkboxes()
+        except Exception as e:
+            # Failed to load dataset
+            self.loaded_dataset = False
+
+            # Create error popup
+            error_popup = ctk.CTkToplevel(self)
+            error_popup.title("Dataset Loading Error")
+            error_popup.geometry("400x200")
+            error_popup.attributes('-topmost', True)  # Keep window on top
+            error_popup.grab_set()  # Prevent interaction with main window until popup is closed
+            
+            # Error message label
+            ctk.CTkLabel(
+                error_popup, 
+                text=f"Error loading dataset:\n\n{str(e)}",
+                wraplength=350
+            ).pack(pady=20, padx=20)
+            
+            # OK button to close popup
+            ctk.CTkButton(
+                error_popup, 
+                text="OK", 
+                command=error_popup.destroy
+            ).pack(pady=10)
         
     def update_class_checkboxes(self):
         # Clear existing checkboxes
@@ -276,10 +321,7 @@ class ObjectDetectionViewer(ctk.CTk):
         
         # Load image file
         image_path = os.path.join(self.image_path, image_info['file_name'])
-        try:
-            self.current_image = Image.open(image_path)
-        except:
-            self.current_image = Image.new('RGB', (800, 600), 'gray')
+        self.current_image = Image.open(image_path)
             
         # Apply zoom
         new_size = tuple(int(dim * self.zoom_factor) for dim in self.current_image.size)

@@ -20,11 +20,15 @@ class ObjectDetectionViewer(ctk.CTk):
         self.image_annotations = defaultdict(list)  # {image_id: [annotations]}
         self.current_image = None
         self.photo_image = None
+        self.resize_factor = 1.0
         self.zoom_factor = 1.0
         self.class_checkboxes = {}
         self.visible_classes = set()
         self.selected_box = None
         self.loaded_dataset = False
+        self.loaded_current_image = False
+        self._image_min_height = 720
+        self._image_min_width = 1280
 
         # dataset info
         self.dataset_format_options = ["COCO"]
@@ -79,6 +83,9 @@ class ObjectDetectionViewer(ctk.CTk):
         else:
             self.zoom_factor *= 0.9
         self.load_current_image()
+
+    def reset_zoom_factor(self):
+        self.zoom_factor = 1.0
 
     def create_menu(self):
         # Main load frame with dataset loading options
@@ -239,16 +246,20 @@ class ObjectDetectionViewer(ctk.CTk):
             # Loaded dataset
             self.loaded_dataset = True
 
+            # Reset loaded image
+            self.loaded_current_image = False
+
             # Set image list for navigation
             self.image_list = list(self.images.keys())
             self.current_image_index = 0
             
             # Update UI
             self.load_current_image()
-            self.update_class_checkboxes()
+            # self.update_class_checkboxes()
         except Exception as e:
             # Failed to load dataset
             self.loaded_dataset = False
+            self.loaded_current_image = False
 
             # Create error popup
             error_popup = ctk.CTkToplevel(self)
@@ -315,17 +326,28 @@ class ObjectDetectionViewer(ctk.CTk):
     def load_current_image(self):
         if not self.image_list:
             return
-            
-        current_image_id = self.image_list[self.current_image_index]
-        image_info = self.images[current_image_id]
         
-        # Load image file
-        image_path = os.path.join(self.image_path, image_info['file_name'])
-        self.current_image = Image.open(image_path)
+        # Load image if it is not yet loaded
+        if not self.loaded_current_image:
+            current_image_id = self.image_list[self.current_image_index]
+            image_info = self.images[current_image_id]
+            
+            # Load image file
+            image_path = os.path.join(self.image_path, image_info['file_name'])
+            self._current_image = Image.open(image_path)
+
+            # Resize the image to a minimum size
+            w, h = self._current_image.size
+            self.resize_factor = max(1.0 , min(self._image_min_height / h, self._image_min_width / w))
+            # new_size = tuple(int(dim * self.resize_factor) for dim in self._current_image.size)
+            # self.current_image = self._current_image.resize(new_size)
+            
+            # Set loaded current image
+            self.loaded_current_image = True
             
         # Apply zoom
-        new_size = tuple(int(dim * self.zoom_factor) for dim in self.current_image.size)
-        self.current_image = self.current_image.resize(new_size, Image.Resampling.LANCZOS)
+        new_size = tuple(int(dim * self.zoom_factor * self.resize_factor) for dim in self._current_image.size)
+        self.current_image = self._current_image.resize(new_size)
         
         self.photo_image = ImageTk.PhotoImage(self.current_image)
         
@@ -361,8 +383,8 @@ class ObjectDetectionViewer(ctk.CTk):
                 
             # Convert COCO bbox [x, y, width, height] to [x1, y1, x2, y2]
             x, y, w, h = ann['bbox']
-            x1, y1 = x * self.zoom_factor, y * self.zoom_factor
-            x2, y2 = (x + w) * self.zoom_factor, (y + h) * self.zoom_factor
+            x1, y1 = x * self.zoom_factor * self.resize_factor, y * self.zoom_factor * self.resize_factor
+            x2, y2 = (x + w) * self.zoom_factor * self.resize_factor, (y + h) * self.zoom_factor * self.resize_factor
             
             # Create unique tag for this box
             box_tag = f"box_{ann['category_id']}_{ann['id']}"
@@ -379,7 +401,7 @@ class ObjectDetectionViewer(ctk.CTk):
             category_name = self.categories[ann['category_id']]['name']
             self.canvas.create_text(
                 x1 + cx, y1 + cy - 5,
-                text=f"{category_name} ({ann['score']:.2f})",
+                text=f"{category_name} ({ann['category_id']})",
                 fill="white",
                 anchor="sw",
                 tags=("box", box_tag)
@@ -414,11 +436,15 @@ class ObjectDetectionViewer(ctk.CTk):
     def next_image(self, event=None):
         if self.current_image_index < len(self.image_list) - 1:
             self.current_image_index += 1
+            self.loaded_current_image = False
+            self.reset_zoom_factor()
             self.load_current_image()
             
     def prev_image(self, event=None):
         if self.current_image_index > 0:
             self.current_image_index -= 1
+            self.loaded_current_image = False
+            self.reset_zoom_factor()
             self.load_current_image()
             
     def save_current_image(self):
@@ -435,7 +461,7 @@ class ObjectDetectionViewer(ctk.CTk):
             return
             
         # Create new image with annotations
-        img_draw = self.current_image.copy()
+        img_draw = self._current_image.copy()
         draw = ImageDraw.Draw(img_draw)
         
         current_image_id = self.image_list[self.current_image_index]
@@ -453,7 +479,7 @@ class ObjectDetectionViewer(ctk.CTk):
             
             # Draw label
             category_name = self.categories[ann['category_id']]['name']
-            draw.text((x, y - 10), f"{category_name} ({ann['score']:.2f})", fill=color)
+            draw.text((x, y - 10), f"{category_name} ({ann['category_id']})", fill=color)
             
         # Save image
         img_draw.save(filename)

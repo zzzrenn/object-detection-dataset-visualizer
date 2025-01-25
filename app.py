@@ -10,7 +10,7 @@ class ObjectDetectionViewer(ctk.CTk):
         super().__init__()
 
         self.title("Object Detection Dataset Viewer")
-        self.geometry("1200x800")
+        self.geometry("1400x800")
 
         # Initialize variables
         self.current_image_index = 0
@@ -35,23 +35,23 @@ class ObjectDetectionViewer(ctk.CTk):
     def setup_ui(self):
         # Create main layout
         self.grid_columnconfigure(1, weight=1)  # Canvas column
-        self.grid_rowconfigure(1, weight=1)     # Main content row
+        self.grid_rowconfigure(2, weight=1)     # Main content row
 
         # Create menu bar
         self.create_menu()
         
         # Create canvas for image display
         self.canvas_frame = ctk.CTkFrame(self)
-        self.canvas_frame.grid(row=1, column=1, sticky="nsew", padx=10, pady=10)
-        self.canvas_frame.grid_columnconfigure(0, weight=1)
-        self.canvas_frame.grid_rowconfigure(0, weight=1)
+        self.canvas_frame.grid(row=2, column=1, sticky="nsew", padx=10, pady=10)
+        self.canvas_frame.grid_columnconfigure(1, weight=1)
+        self.canvas_frame.grid_rowconfigure(2, weight=1)
         
         self.canvas = tk.Canvas(self.canvas_frame, bg='gray20', highlightthickness=0)
-        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.canvas.grid(row=2, column=1, sticky="nsew")
         
         # Create right sidebar for class checkboxes
         self.sidebar = ctk.CTkScrollableFrame(self, width=250)
-        self.sidebar.grid(row=1, column=3, sticky="nsew", padx=10, pady=10)
+        self.sidebar.grid(row=2, column=3, sticky="nsew", padx=10, pady=10)
         
         # Bind events
         self.bind('<Left>', self.prev_image)
@@ -78,41 +78,69 @@ class ObjectDetectionViewer(ctk.CTk):
         self.load_current_image()
 
     def create_menu(self):
+        # Main load frame with dataset loading options
         self.load_frame = ctk.CTkFrame(self)
-        self.load_frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=10, pady=5)
+        self.load_frame.grid(row=0, column=0, columnspan=4, sticky="ew", padx=5, pady=5)
         
-        # Input format dropdown
+        # Dataset format dropdown
+        ctk.CTkLabel(self.load_frame, text="Format:").grid(row=0, column=0, padx=5, pady=5)
         dataset_format_dd = ctk.CTkOptionMenu(
             self.load_frame,
-            values=self.dataset_format_options
+            values=self.dataset_format_options,
+            width=100
         )
-        dataset_format_dd.pack(side="left", padx=5)
+        dataset_format_dd.grid(row=0, column=1, padx=5, pady=5)
 
-        # Select directory
+        # Image folder selection
+        ctk.CTkLabel(self.load_frame, text="Images:").grid(row=0, column=2, padx=5, pady=5)
         image_folder_btn = ctk.CTkButton(
             self.load_frame,
-            text="select path to image foldedr",
+            text="Select Folder",
+            width=100,
             command=self.select_image_directory
         )
-        image_folder_btn.pack(side="left", padx=5)
+        image_folder_btn.grid(row=0, column=3, padx=5, pady=5)
 
+        # Image path entry
+        self.image_path_entry = ctk.CTkEntry(
+            self.load_frame, 
+            placeholder_text="No folder selected",
+            width=300,
+            state="readonly"
+        )
+        self.image_path_entry.grid(row=0, column=4, padx=5, pady=5, sticky="ew")
+
+        # Annotation file selection
+        ctk.CTkLabel(self.load_frame, text="Annotations:").grid(row=0, column=5, padx=5, pady=5)
         annotation_folder_btn = ctk.CTkButton(
             self.load_frame,
-            text="select path to annotation.json",
+            text="Select File",
+            width=100,
             command=self.select_annotation
         )
-        annotation_folder_btn.pack(side="left", padx=5)
+        annotation_folder_btn.grid(row=0, column=6, padx=5, pady=5)
+
+        # Annotation path entry
+        self.annotation_path_entry = ctk.CTkEntry(
+            self.load_frame, 
+            placeholder_text="No annotation file selected",
+            width=300,
+            state="readonly"
+        )
+        self.annotation_path_entry.grid(row=0, column=7, padx=5, pady=5, sticky="ew")
 
         # Load dataset button
         load_btn = ctk.CTkButton(
             self.load_frame, 
-            text="Load COCO Dataset", 
+            text="Load Dataset", 
+            width=100,
             command=self.load_dataset
         )
-        load_btn.pack(side="left", padx=5)
-        
+        load_btn.grid(row=0, column=8, padx=5, pady=5)
+
+        # Save and export frame
         self.save_frame = ctk.CTkFrame(self)
-        self.save_frame.grid(row=0, column=2, columnspan=2, sticky="ew", padx=10, pady=5)
+        self.save_frame.grid(row=1, column=0, columnspan=4, sticky="ew", padx=5, pady=5)
 
         # Save current image button
         save_btn = ctk.CTkButton(
@@ -130,25 +158,34 @@ class ObjectDetectionViewer(ctk.CTk):
         )
         export_btn.pack(side="left", padx=5)
 
+        # Configure column weights for responsive layout
+        self.load_frame.grid_columnconfigure(4, weight=1)
+        self.load_frame.grid_columnconfigure(7, weight=1)   
+
     def select_image_directory(self):
         self.image_path = tk.filedialog.askdirectory(
             title="Select image folder"
         )
-        print(self.image_path)
-    
+        if self.image_path:
+            # Update the entry with the selected path
+            self.image_path_entry.configure(state="normal")
+            self.image_path_entry.delete(0, tk.END)
+            self.image_path_entry.insert(0, self.image_path)
+            self.image_path_entry.configure(state="readonly")
+        
     def select_annotation(self):
         self.annotation_path = tk.filedialog.askopenfilename(
             title="Select COCO annotation file",
             filetypes=[("JSON files", "*.json")]
         )
+        if self.annotation_path:
+            # Update the entry with the selected path
+            self.annotation_path_entry.configure(state="normal")
+            self.annotation_path_entry.delete(0, tk.END)
+            self.annotation_path_entry.insert(0, self.annotation_path)
+            self.annotation_path_entry.configure(state="readonly")
         
-    def load_dataset(self):
-        # Open file dialog to select COCO annotation file
-        # filename = tk.filedialog.askopenfilename(
-        #     title="Select COCO annotation file",
-        #     filetypes=[("JSON files", "*.json")]
-        # )
-        
+    def load_dataset(self):     
         assert self.image_path and self.annotation_path, "Missing image path and/or annotation path!"
             
         # Load COCO format annotations

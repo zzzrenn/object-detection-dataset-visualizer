@@ -3,6 +3,7 @@ import tkinter as tk
 from PIL import Image, ImageTk, ImageDraw
 import json
 import os
+import threading
 from collections import defaultdict
 
 class ObjectDetectionViewer(ctk.CTk):
@@ -30,6 +31,11 @@ class ObjectDetectionViewer(ctk.CTk):
         self.loaded_current_image = False
         self._image_min_height = 720
         self._image_min_width = 1280
+        self.hovered_box = None  # Track the currently hovered box
+        self.metadata_popup = None
+        # Add threading lock for popup operations
+        self.popup_lock = threading.Lock()
+
 
         # dataset info
         self.dataset_format_options = ["COCO"]
@@ -62,18 +68,8 @@ class ObjectDetectionViewer(ctk.CTk):
         # Bind events
         self.bind('<Left>', self.prev_image)
         self.bind('<Right>', self.next_image)
-        self.canvas.bind('<ButtonPress-1>', self.on_canvas_click)
+        self.canvas.bind('<Motion>', self.on_canvas_motion)  # Bind motion event
         self.canvas.bind('<MouseWheel>', self.on_mousewheel)
-
-    def on_canvas_click(self, event):
-        # Find clicked box and show metadata
-        clicked_items = self.canvas.find_overlapping(event.x-2, event.y-2, event.x+2, event.y+2)
-        for item in clicked_items:
-            tags = self.canvas.gettags(item)
-            if "box" in tags:
-                # Show metadata in a popup
-                self.show_box_metadata(tags[1])
-                break
 
     def on_mousewheel(self, event):
         if not self.loaded_dataset:
@@ -256,7 +252,6 @@ class ObjectDetectionViewer(ctk.CTk):
             
             # Update UI
             self.load_current_image()
-            # self.update_class_checkboxes()
         except Exception as e:
             # Failed to load dataset
             self.loaded_dataset = False
@@ -343,8 +338,6 @@ class ObjectDetectionViewer(ctk.CTk):
             # Resize the image to a minimum size
             w, h = self._current_image.size
             self.resize_factor = max(1.0 , min(self._image_min_height / h, self._image_min_width / w))
-            # new_size = tuple(int(dim * self.resize_factor) for dim in self._current_image.size)
-            # self.current_image = self._current_image.resize(new_size)
             
             # Set loaded current image
             self.loaded_current_image = True
@@ -398,7 +391,7 @@ class ObjectDetectionViewer(ctk.CTk):
                 x1 + cx, y1 + cy, x2 + cx, y2 + cy,
                 outline=self.get_color(ann['category_id']),
                 width=2,
-                tags=("box", box_tag)
+                tags=("box", box_tag)                
             )
             
             # Draw label
@@ -436,8 +429,41 @@ class ObjectDetectionViewer(ctk.CTk):
             "#FF37C7"
             ]
         return colors[category_id % len(colors)]
+
+    def on_canvas_motion(self, event):
+        if not self.loaded_dataset:
+            return
         
-    def show_box_metadata(self, box_tag):
+        # Find hovered box
+        hovered_items = self.canvas.find_overlapping(event.x-2, event.y-2, event.x+2, event.y+2)
+        hovered_box = None
+        for item in hovered_items:
+            tags = self.canvas.gettags(item)
+            if "box" in tags:
+                hovered_box = tags[1]
+                break
+        
+        # If the hovered box has changed
+        # Lock to avoid race condition, where the window is changed before destroy 
+        # when mouse hovers rapidly across multipl boxes
+        if self.popup_lock.acquire(False):
+            if hovered_box != self.hovered_box:
+                # Hide current metadata popup
+                self.hide_box_metadata()
+                self.hovered_box = hovered_box
+                # Show new metadata popup if hovering over a box
+                if hovered_box:
+                    self.show_box_metadata(hovered_box)
+            self.popup_lock.release()
+
+    def hide_box_metadata(self):
+        # Hide the metadata popup if it exists
+        if self.metadata_popup is not None:
+            self.metadata_popup.destroy()
+            self.metadata_popup = None
+
+    def show_box_metadata(self, box_tag):  
+              
         _, category_id, ann_id = box_tag.split("_")
         category_id = int(category_id)
         ann_id = int(ann_id)
@@ -448,15 +474,15 @@ class ObjectDetectionViewer(ctk.CTk):
                   if a['id'] == ann_id)
         
         # Create popup window
-        popup = ctk.CTkToplevel(self)
-        popup.title("Box Metadata")
-        popup.geometry("300x200")
+        self.metadata_popup = ctk.CTkToplevel(self)
+        self.metadata_popup.title("Box Metadata")
+        self.metadata_popup.geometry("300x200")
+        self.metadata_popup.attributes('-topmost', True)  # Keep window on top
         
         # Add metadata
-        ctk.CTkLabel(popup, text=f"Category: {self.categories[category_id]['name']}").pack(pady=5)
-        ctk.CTkLabel(popup, text=f"Confidence: {ann['score']:.3f}").pack(pady=5)
-        ctk.CTkLabel(popup, text=f"Bbox: {[round(x, 2) for x in ann['bbox']]}").pack(pady=5)
-        ctk.CTkLabel(popup, text=f"Annotation ID: {ann_id}").pack(pady=5)
+        ctk.CTkLabel(self.metadata_popup, text=f"Category: {self.categories[category_id]['name']}").pack(pady=5)
+        ctk.CTkLabel(self.metadata_popup, text=f"Bbox: {[round(x, 2) for x in ann['bbox']]}").pack(pady=5)
+        ctk.CTkLabel(self.metadata_popup, text=f"Annotation ID: {ann_id}").pack(pady=5)
         
     def next_image(self, event=None):
         if self.current_image_index < len(self.image_list) - 1:

@@ -5,6 +5,7 @@ import json
 import os
 import threading
 from collections import defaultdict
+from modules.export import FilterDialog, MergeDialog
 
 class ObjectDetectionViewer(ctk.CTk):
     def __init__(self):
@@ -539,49 +540,81 @@ class ObjectDetectionViewer(ctk.CTk):
         if not self.image_list:
             return
             
-        # Open file dialog
-        filename = tk.filedialog.asksaveasfilename(
-            defaultextension=".json",
-            filetypes=[("JSON files", "*.json")]
-        )
-        
-        if not filename:
-            return
+        def on_filter_complete(filtered_categories):
+            def on_merge_complete(merge_groups):
+                # Open file dialog
+                filename = tk.filedialog.asksaveasfilename(
+                    defaultextension=".json",
+                    filetypes=[("JSON files", "*.json")]
+                )
+                
+                if not filename:
+                    return
+                    
+                # Create category mapping for merged categories
+                category_mapping = {}
+                old_categories = filtered_categories.copy()
+                new_categories = {}
+                next_category_id = 0
+                
+                # Add merged categories
+                for group in merge_groups:
+                    for old_cat_id in group['categories']:
+                        category_mapping[old_cat_id] = next_category_id
+                        # Remove old category if it's being merged
+                        old_categories.remove(old_cat_id)
+                    new_categories[next_category_id] = group['new_name']
+                    next_category_id += 1
+
+                # Filtered categories that are not merged
+                for old_cat_id in old_categories:
+                    category_mapping[old_cat_id] = next_category_id # continue with new category id
+                    new_categories[next_category_id] = self.categories[old_cat_id]['name']
+                    next_category_id += 1
+                
+                # Create COCO format data with merged and filtered categories
+                export_data = {
+                    'images': [
+                        {
+                            'id': img_id,
+                            'file_name': img_info['file_name'],
+                            'width': img_info['width'],
+                            'height': img_info['height']
+                        }
+                        for img_id, img_info in self.images.items()
+                    ],
+                    'categories': [
+                        {
+                            'id': cat_id,
+                            'name': cat_name
+                        }
+                        for cat_id, cat_name in new_categories.items()
+                    ],
+                    'annotations': [
+                        {
+                            'id': ann['id'], # should be changed to continuos id after filtering and merging
+                            'image_id': img_id,
+                            'category_id': category_mapping[ann['category_id']],
+                            'bbox': ann['bbox'],
+                            'score': ann['score']
+                        }
+                        for img_id, anns in self.image_annotations.items()
+                        for ann in anns
+                        if ann['category_id'] in category_mapping
+                    ]
+                }
+                
+                # Save to file
+                with open(filename, 'w') as f:
+                    json.dump(export_data, f, indent=2)
             
-        # Create COCO format data
-        export_data = {
-            'images': [
-                {
-                    'id': img_id,
-                    'file_name': img_info['file_name'],
-                    'width': img_info['width'],
-                    'height': img_info['height']
-                }
-                for img_id, img_info in self.images.items()
-            ],
-            'categories': [
-                {
-                    'id': cat_id,
-                    'name': cat_info['name']
-                }
-                for cat_id, cat_info in self.categories.items()
-            ],
-            'annotations': [
-                {
-                    'id': ann['id'],
-                    'image_id': img_id,
-                    'category_id': ann['category_id'],
-                    'bbox': ann['bbox'],
-                    'score': ann['score']
-                }
-                for img_id, anns in self.image_annotations.items()
-                for ann in anns
-            ]
-        }
+            # Show merge dialog after filtering
+            merge_dialog = MergeDialog(self, self.categories, filtered_categories, on_merge_complete)
+            merge_dialog.grab_set()
         
-        # Save to file
-        with open(filename, 'w') as f:
-            json.dump(export_data, f, indent=2)
+        # Show filter dialog first
+        filter_dialog = FilterDialog(self, self.categories, on_filter_complete)
+        filter_dialog.grab_set()
 
 if __name__ == "__main__":
     app = ObjectDetectionViewer()

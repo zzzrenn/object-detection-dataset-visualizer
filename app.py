@@ -34,7 +34,7 @@ class ObjectDetectionViewer(ctk.CTk):
         self._image_min_width = 1280
         self.hovered_box = None  # Track the currently hovered box
         self.metadata_popup = None
-        
+
         # Add threading lock for popup operations
         self.popup_lock = threading.Lock()
 
@@ -42,6 +42,13 @@ class ObjectDetectionViewer(ctk.CTk):
         self.dataset_format_options = ["COCO"]
         self.image_path = None
         self.annotation_path = None
+
+        # Add panning variables
+        self.pan_start_x = 0
+        self.pan_start_y = 0
+        self.pan_offset_x = 0
+        self.pan_offset_y = 0
+        self.is_panning = False
         
         self.setup_ui()
         
@@ -316,8 +323,62 @@ class ObjectDetectionViewer(ctk.CTk):
             self.visible_classes.add(class_idx)
         else:
             self.visible_classes.remove(class_idx)
-        self.draw_annotations()
+        self.draw_image_and_annotations()
         
+    def draw_image_and_annotations(self):
+        if not self.current_image:
+            return
+            
+        # Clear canvas
+        self.canvas.delete("all")
+        
+        # Calculate center position with pan offset
+        cx = self.canvas.winfo_width()//2 - self.current_image.width//2 + self.pan_offset_x
+        cy = self.canvas.winfo_height()//2 - self.current_image.height//2 + self.pan_offset_y
+        
+        # Draw image
+        self.canvas.create_image(
+            cx + self.current_image.width//2,
+            cy + self.current_image.height//2,
+            image=self.photo_image,
+            anchor="center"
+        )
+        
+        # Draw annotations
+        if self.image_list:
+            current_image_id = self.image_list[self.current_image_index]
+            current_anns = self.image_annotations[current_image_id]
+            
+            for ann in current_anns:
+                if ann['category_id'] not in self.visible_classes:
+                    continue
+                    
+                # Convert COCO bbox [x, y, width, height] to [x1, y1, x2, y2]
+                x, y, w, h = ann['bbox']
+                x1, y1 = x * self.zoom_factor * self.resize_factor, y * self.zoom_factor * self.resize_factor
+                x2, y2 = (x + w) * self.zoom_factor * self.resize_factor, (y + h) * self.zoom_factor * self.resize_factor
+                
+                # Create unique tag for this box
+                box_tag = f"box_{ann['category_id']}_{ann['id']}"
+                
+                # Draw box with pan offset
+                self.canvas.create_rectangle(
+                    x1 + cx, y1 + cy, x2 + cx, y2 + cy,
+                    outline=self.get_color(ann['category_id']),
+                    width=2,
+                    tags=("box", box_tag)                
+                )
+                
+                # Draw label with pan offset
+                category_name = self.categories[ann['category_id']]['name']
+                self.canvas.create_text(
+                    x1 + cx, y1 + cy - 5,
+                    text=f"{category_name} ({ann['category_id']})",
+                    fill="white",
+                    anchor="sw",
+                    tags=("box", box_tag)
+                )
+
     def load_current_image(self):
         if not self.image_list:
             return
@@ -335,6 +396,9 @@ class ObjectDetectionViewer(ctk.CTk):
             w, h = self._current_image.size
             self.resize_factor = max(1.0 , min(self._image_min_height / h, self._image_min_width / w))
             
+            # Reset pan offset when loading new image
+            self.reset_pan()
+            
             # Set loaded current image
             self.loaded_current_image = True
             
@@ -344,61 +408,11 @@ class ObjectDetectionViewer(ctk.CTk):
         
         self.photo_image = ImageTk.PhotoImage(self.current_image)
         
-        # Update canvas
-        self.canvas.delete("all")
-        self.canvas.create_image(
-            self.canvas.winfo_width()//2,
-            self.canvas.winfo_height()//2,
-            image=self.photo_image,
-            anchor="center"
-        )
+        # Draw image and annotations
+        self.draw_image_and_annotations()
         
-        # Update class checkboxes and draw annotations
+        # Update class checkboxes
         self.update_class_checkboxes()
-        self.draw_annotations()
-        
-    def draw_annotations(self):
-        self.canvas.delete("box")
-        
-        if not self.image_list:
-            return
-            
-        current_image_id = self.image_list[self.current_image_index]
-        current_anns = self.image_annotations[current_image_id]
-        
-        # Calculate canvas center offset
-        cx = self.canvas.winfo_width()//2 - self.current_image.width//2
-        cy = self.canvas.winfo_height()//2 - self.current_image.height//2
-        
-        for ann in current_anns:
-            if ann['category_id'] not in self.visible_classes:
-                continue
-                
-            # Convert COCO bbox [x, y, width, height] to [x1, y1, x2, y2]
-            x, y, w, h = ann['bbox']
-            x1, y1 = x * self.zoom_factor * self.resize_factor, y * self.zoom_factor * self.resize_factor
-            x2, y2 = (x + w) * self.zoom_factor * self.resize_factor, (y + h) * self.zoom_factor * self.resize_factor
-            
-            # Create unique tag for this box
-            box_tag = f"box_{ann['category_id']}_{ann['id']}"
-            
-            # Draw box
-            self.canvas.create_rectangle(
-                x1 + cx, y1 + cy, x2 + cx, y2 + cy,
-                outline=self.get_color(ann['category_id']),
-                width=2,
-                tags=("box", box_tag)                
-            )
-            
-            # Draw label
-            category_name = self.categories[ann['category_id']]['name']
-            self.canvas.create_text(
-                x1 + cx, y1 + cy - 5,
-                text=f"{category_name} ({ann['category_id']})",
-                fill="white",
-                anchor="sw",
-                tags=("box", box_tag)
-            )
 
     # Metadata functions
     def hide_box_metadata(self):
@@ -435,6 +449,7 @@ class ObjectDetectionViewer(ctk.CTk):
             self.current_image_index += 1
             self.loaded_current_image = False
             self.reset_zoom_factor()
+            self.reset_pan()
             self.load_current_image()
             
     def prev_image(self, event=None):
@@ -442,6 +457,7 @@ class ObjectDetectionViewer(ctk.CTk):
             self.current_image_index -= 1
             self.loaded_current_image = False
             self.reset_zoom_factor()
+            self.reset_pan()
             self.load_current_image()
 
     def on_mousewheel(self, event):
@@ -482,6 +498,39 @@ class ObjectDetectionViewer(ctk.CTk):
                 if hovered_box:
                     self.show_box_metadata(hovered_box)
             self.popup_lock.release()
+
+    def start_pan(self, event):
+        if not self.loaded_dataset:
+            return
+        self.is_panning = True
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
+
+    def pan(self, event):
+        if not self.is_panning:
+            return
+            
+        # Calculate the distance moved
+        dx = event.x - self.pan_start_x
+        dy = event.y - self.pan_start_y
+        
+        # Update the offset
+        self.pan_offset_x += dx
+        self.pan_offset_y += dy
+        
+        # Update start position for next movement
+        self.pan_start_x = event.x
+        self.pan_start_y = event.y
+        
+        # Redraw the image and annotations
+        self.draw_image_and_annotations()
+
+    def stop_pan(self, event):
+        self.is_panning = False
+
+    def reset_pan(self):
+        self.pan_offset_x = 0
+        self.pan_offset_y = 0
     
 
     # Export functions

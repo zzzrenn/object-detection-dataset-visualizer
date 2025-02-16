@@ -374,7 +374,7 @@ class ObjectDetectionViewer(ctk.CTk):
                 self.canvas.create_text(
                     x1 + cx, y1 + cy - 5,
                     text=f"{category_name} ({ann['category_id']})",
-                    fill="white",
+                    fill=self.get_color(ann['category_id']),
                     anchor="sw",
                     tags=("box", box_tag)
                 )
@@ -407,12 +407,13 @@ class ObjectDetectionViewer(ctk.CTk):
         self.current_image = self._current_image.resize(new_size)
         
         self.photo_image = ImageTk.PhotoImage(self.current_image)
+
+        # Update class checkboxes
+        self.update_class_checkboxes()
         
         # Draw image and annotations
         self.draw_image_and_annotations()
         
-        # Update class checkboxes
-        self.update_class_checkboxes()
 
     # Metadata functions
     def hide_box_metadata(self):

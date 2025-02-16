@@ -31,3 +31,7 @@ pip install -r requirements.txt
 * Click export dataset to filter and merge existing classes into new self-defined classes.
 * ![filter_class](https://raw.githubusercontent.com/zzzrenn/object-detection-dataset-visualizer/master/.images/filter.png)
 * ![merge_class](https://raw.githubusercontent.com/zzzrenn/object-detection-dataset-visualizer/master/.images/merge.png)
+
+### TODO
+- [ ] Support YOLO format
+- [ ] Support VOC format

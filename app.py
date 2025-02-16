@@ -34,9 +34,9 @@ class ObjectDetectionViewer(ctk.CTk):
         self._image_min_width = 1280
         self.hovered_box = None  # Track the currently hovered box
         self.metadata_popup = None
+        
         # Add threading lock for popup operations
         self.popup_lock = threading.Lock()
-
 
         # dataset info
         self.dataset_format_options = ["COCO"]
@@ -72,19 +72,13 @@ class ObjectDetectionViewer(ctk.CTk):
         self.canvas.bind('<Motion>', self.on_canvas_motion)  # Bind motion event
         self.canvas.bind('<MouseWheel>', self.on_mousewheel)
 
-    def on_mousewheel(self, event):
-        if not self.loaded_dataset:
-            return
-        # Zoom in/out with mouse wheel
-        if event.delta > 0:
-            self.zoom_factor *= 1.1
-        else:
-            self.zoom_factor *= 0.9
-        self.load_current_image()
+        # Add pan bindings
+        self.canvas.bind('<ButtonPress-1>', self.start_pan)
+        self.canvas.bind('<B1-Motion>', self.pan)
+        self.canvas.bind('<ButtonRelease-1>', self.stop_pan)
 
-    def reset_zoom_factor(self):
-        self.zoom_factor = 1.0
 
+    # Menu functions
     def create_menu(self):
         # Main load frame with dataset loading options
         self.load_frame = ctk.CTkFrame(self)
@@ -171,6 +165,7 @@ class ObjectDetectionViewer(ctk.CTk):
         self.load_frame.grid_columnconfigure(4, weight=1)
         self.load_frame.grid_columnconfigure(7, weight=1)   
 
+    # Dataset loading functions
     def select_image_directory(self):
         self.image_path = tk.filedialog.askdirectory(
             title="Select image folder"
@@ -404,59 +399,8 @@ class ObjectDetectionViewer(ctk.CTk):
                 anchor="sw",
                 tags=("box", box_tag)
             )
-            
-    def get_color(self, category_id):
-        # Generate consistent color for each category
-        colors = [
-            "#FF3838",
-            "#FF9D97",
-            "#FF701F",
-            "#FFB21D",
-            "#CFD231",
-            "#48F90A",
-            "#92CC17",
-            "#3DDB86",
-            "#1A9334",
-            "#00D4BB",
-            "#2C99A8",
-            "#00C2FF",
-            "#344593",
-            "#6473FF",
-            "#0018EC",
-            "#8438FF",
-            "#520085",
-            "#CB38FF",
-            "#FF95C8",
-            "#FF37C7"
-            ]
-        return colors[category_id % len(colors)]
 
-    def on_canvas_motion(self, event):
-        if not self.loaded_dataset:
-            return
-        
-        # Find hovered box
-        hovered_items = self.canvas.find_overlapping(event.x-2, event.y-2, event.x+2, event.y+2)
-        hovered_box = None
-        for item in hovered_items:
-            tags = self.canvas.gettags(item)
-            if "box" in tags:
-                hovered_box = tags[1]
-                break
-        
-        # If the hovered box has changed
-        # Lock to avoid race condition, where the window is changed before destroy 
-        # when mouse hovers rapidly across multipl boxes
-        if self.popup_lock.acquire(False):
-            if hovered_box != self.hovered_box:
-                # Hide current metadata popup
-                self.hide_box_metadata()
-                self.hovered_box = hovered_box
-                # Show new metadata popup if hovering over a box
-                if hovered_box:
-                    self.show_box_metadata(hovered_box)
-            self.popup_lock.release()
-
+    # Metadata functions
     def hide_box_metadata(self):
         # Hide the metadata popup if it exists
         if self.metadata_popup is not None:
@@ -485,6 +429,7 @@ class ObjectDetectionViewer(ctk.CTk):
         ctk.CTkLabel(self.metadata_popup, text=f"Bbox: {[round(x, 2) for x in ann['bbox']]}").pack(pady=5)
         ctk.CTkLabel(self.metadata_popup, text=f"Annotation ID: {ann_id}").pack(pady=5)
         
+    # Event functions
     def next_image(self, event=None):
         if self.current_image_index < len(self.image_list) - 1:
             self.current_image_index += 1
@@ -498,44 +443,48 @@ class ObjectDetectionViewer(ctk.CTk):
             self.loaded_current_image = False
             self.reset_zoom_factor()
             self.load_current_image()
-            
-    def save_current_image(self):
-        if not self.current_image:
+
+    def on_mousewheel(self, event):
+        if not self.loaded_dataset:
             return
-            
-        # Open file dialog
-        filename = tk.filedialog.asksaveasfilename(
-            defaultextension=".png",
-            filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
-        )
-        
-        if not filename:
+        # Zoom in/out with mouse wheel
+        if event.delta > 0:
+            self.zoom_factor *= 1.1
+        else:
+            self.zoom_factor *= 0.9
+        self.load_current_image()
+
+    def reset_zoom_factor(self):
+        self.zoom_factor = 1.0
+
+    def on_canvas_motion(self, event):
+        if not self.loaded_dataset:
             return
-            
-        # Create new image with annotations
-        img_draw = self._current_image.copy()
-        draw = ImageDraw.Draw(img_draw)
         
-        current_image_id = self.image_list[self.current_image_index]
-        current_anns = self.image_annotations[current_image_id]
+        # Find hovered box
+        hovered_items = self.canvas.find_overlapping(event.x-2, event.y-2, event.x+2, event.y+2)
+        hovered_box = None
+        for item in hovered_items:
+            tags = self.canvas.gettags(item)
+            if "box" in tags:
+                hovered_box = tags[1]
+                break
         
-        for ann in current_anns:
-            if ann['category_id'] not in self.visible_classes:
-                continue
-                
-            x, y, w, h = ann['bbox']
-            color = self.get_color(ann['category_id'])
-            
-            # Draw rectangle
-            draw.rectangle([x, y, x + w, y + h], outline=color, width=2)
-            
-            # Draw label
-            category_name = self.categories[ann['category_id']]['name']
-            draw.text((x, y - 10), f"{category_name} ({ann['category_id']})", fill=color)
-            
-        # Save image
-        img_draw.save(filename)
-        
+        # If the hovered box has changed
+        # Lock to avoid race condition, where the window is changed before destroy 
+        # when mouse hovers rapidly across multipl boxes
+        if self.popup_lock.acquire(False):
+            if hovered_box != self.hovered_box:
+                # Hide current metadata popup
+                self.hide_box_metadata()
+                self.hovered_box = hovered_box
+                # Show new metadata popup if hovering over a box
+                if hovered_box:
+                    self.show_box_metadata(hovered_box)
+            self.popup_lock.release()
+    
+
+    # Export functions
     def export_annotations(self):
         if not self.image_list:
             return
@@ -615,6 +564,71 @@ class ObjectDetectionViewer(ctk.CTk):
         # Show filter dialog first
         filter_dialog = FilterDialog(self, self.categories, on_filter_complete)
         filter_dialog.grab_set()
+
+    def save_current_image(self):
+        if not self.current_image:
+            return
+            
+        # Open file dialog
+        filename = tk.filedialog.asksaveasfilename(
+            defaultextension=".png",
+            filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+        )
+        
+        if not filename:
+            return
+            
+        # Create new image with annotations
+        img_draw = self._current_image.copy()
+        draw = ImageDraw.Draw(img_draw)
+        
+        current_image_id = self.image_list[self.current_image_index]
+        current_anns = self.image_annotations[current_image_id]
+        
+        for ann in current_anns:
+            if ann['category_id'] not in self.visible_classes:
+                continue
+                
+            x, y, w, h = ann['bbox']
+            color = self.get_color(ann['category_id'])
+            
+            # Draw rectangle
+            draw.rectangle([x, y, x + w, y + h], outline=color, width=2)
+            
+            # Draw label
+            category_name = self.categories[ann['category_id']]['name']
+            draw.text((x, y - 10), f"{category_name} ({ann['category_id']})", fill=color)
+            
+        # Save image
+        img_draw.save(filename)
+
+
+    # Color functions
+    def get_color(self, category_id):
+        # Generate consistent color for each category
+        colors = [
+            "#FF3838",
+            "#FF9D97",
+            "#FF701F",
+            "#FFB21D",
+            "#CFD231",
+            "#48F90A",
+            "#92CC17",
+            "#3DDB86",
+            "#1A9334",
+            "#00D4BB",
+            "#2C99A8",
+            "#00C2FF",
+            "#344593",
+            "#6473FF",
+            "#0018EC",
+            "#8438FF",
+            "#520085",
+            "#CB38FF",
+            "#FF95C8",
+            "#FF37C7"
+            ]
+        return colors[category_id % len(colors)]
 
 if __name__ == "__main__":
     app = ObjectDetectionViewer()
